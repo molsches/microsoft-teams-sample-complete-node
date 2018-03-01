@@ -9,6 +9,7 @@ import { Strings } from "./locale/locale";
 import { loadSessionAsync } from "./utils/DialogUtils";
 import * as teams from "botbuilder-teams";
 import { ComposeExtensionHandlers } from "./composeExtension/ComposeExtensionHandlers";
+import * as https from "https";
 
 // =========================================================
 // Bot Setup
@@ -67,8 +68,7 @@ export class Bot extends builder.UniversalBot {
         return async function (
             event: builder.IEvent,
             callback: (err: Error, body: any, status?: number) => void,
-        ): Promise<void>
-        {
+        ): Promise<void> {
             let session = await loadSessionAsync(bot, event);
             if (session) {
                 // Clear the stack on invoke, as many builtin dialogs don't play well with invoke
@@ -93,7 +93,7 @@ export class Bot extends builder.UniversalBot {
 
     // set incoming event to any because membersAdded is not a field in builder.IEvent
     private getConversationUpdateHandler(bot: builder.UniversalBot): (event: any) => void {
-        return async function(event: any): Promise<void> {
+        return async function (event: any): Promise<void> {
             let session = await loadSessionAsync(bot, event);
 
             if (event.membersAdded && event.membersAdded[0].id && event.membersAdded[0].id.endsWith(config.get("bot.botId"))) {
@@ -108,15 +108,54 @@ export class Bot extends builder.UniversalBot {
     private getO365ConnectorCardActionHandler(bot: builder.UniversalBot): (event: builder.IEvent, query: teams.IO365ConnectorCardActionQuery, callback: (err: Error, result: any, statusCode: number) => void) => void {
         return async function (event: builder.IEvent, query: teams.IO365ConnectorCardActionQuery, callback: (err: Error, result: any, statusCode: number) => void): Promise<void> {
             let session = await loadSessionAsync(bot, event);
-
+            
             let userName = event.address.user.name;
+            
             let body = JSON.parse(query.body);
-            let msg = new builder.Message(session)
-                        .text(Strings.o365connectorcard_action_response, userName, query.actionId, JSON.stringify(body, null, 2));
+            let resp = "Sorry, your transaction could not be completed";
+            // assume that every body has an event type in it
+            if (body.event) {
+                if (body.event === "order") {
+                    let options = {
+                        hostname: "fhir.catalyzeapps.com",
+                        port: 443,
+                        path: "/order",
+                        method: "POST",
+                    };
 
-            session.send(msg);
+                    const req = https.request(options, (res) => {
+                        console.log("STATUS: " + res.statusCode);
+                        if (res.statusCode === 200) {
+                            resp = "The order was filed into the system for " + body.list1;
+                        }
+                        else {
+                            // Figuring out some error handling system for these items
+                            // Will be critical in production.
+                            // If this failed, you could just dump the unprocessed message in a database
+                            // And have this application run some retry logic until it succeeded
+                            // This is crucial if the bot can do critical functionality - Like Orders
+                        }
+                    });
+                    // write data to request body
+                    req.write(query.body);
+                    req.end();
+                }
+                let msg = new builder.Message(session)
+                    .text(resp);
 
-            callback(null, null, 200);
+                session.send(msg);
+
+                callback(null, null, 200);
+            }
+            else {
+                let msg = new builder.Message(session)
+                    .text(Strings.o365connectorcard_action_response, userName, query.actionId, JSON.stringify(body, null, 2));
+
+                session.send(msg);
+
+                callback(null, null, 200);
+            }
+
         };
     }
 }

@@ -31,7 +31,7 @@ export class HeroCardDialog extends TriggerActionDialog {
                 .value("{" +
                     "\"dialog\": \"" + DialogIds.HelloDialogId + "\", " +
                     "\"response\": \"Information for called intent\"" +
-                "}"),
+                "}").text(""),
             );
 
             buttons.push(builder.CardAction.imBack(session, session.gettext(Strings.hello_imback), Strings.imback_button_hello_dialog));
